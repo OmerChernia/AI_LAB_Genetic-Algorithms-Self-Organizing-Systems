@@ -2,6 +2,7 @@ import random
 import time
 import timeit
 import statistics
+import matplotlib.pyplot as plt
 
 GA_POPSIZE = 2048
 GA_MAXITER = 16384
@@ -79,6 +80,9 @@ def main():
 
     population = init_population()
     buffer = []
+    best_fitness_list = []
+    avg_fitness_list = []
+    worst_fitness_list = []
 
     for generation in range(GA_MAXITER):
         tick_start = timeit.default_timer()
@@ -86,6 +90,14 @@ def main():
             ind.calculate_fitness()
 
         sort_population(population)
+
+        best_fitness = population[0].fitness
+        worst_fitness = population[-1].fitness
+        avg_fitness = sum(ind.fitness for ind in population) / len(population)
+        best_fitness_list.append(best_fitness)
+        avg_fitness_list.append(avg_fitness)
+        worst_fitness_list.append(worst_fitness)
+
         print_generation_stats(population, generation)
 
         if population[0].fitness == 0:
@@ -103,6 +115,19 @@ def main():
         buffer.clear()
         mate(population, buffer)
         population, buffer = buffer, population
+
+    # ---------- Task 3_A ----------
+    generations = list(range(len(best_fitness_list)))
+    plt.figure(figsize=(10, 6))
+    plt.plot(generations, best_fitness_list, label="Best Fitness")
+    plt.plot(generations, avg_fitness_list, label="Average Fitness")
+    plt.plot(generations, worst_fitness_list, label="Worst Fitness")
+    plt.xlabel("Generation")
+    plt.ylabel("Fitness")
+    plt.title("Fitness Behavior per Generation")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 if __name__ == "__main__":
     main()
