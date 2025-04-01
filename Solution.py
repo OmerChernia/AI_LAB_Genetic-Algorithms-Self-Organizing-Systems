@@ -1,5 +1,6 @@
 import random
 import time
+import timeit
 import statistics
 
 GA_POPSIZE = 2048
@@ -74,11 +75,13 @@ def print_generation_stats(population, generation): #Prints the generation stats
 
 def main():
     random.seed(time.time())
+    start_time = timeit.default_timer()
 
     population = init_population()
     buffer = []
 
     for generation in range(GA_MAXITER):
+        tick_start = timeit.default_timer()
         for ind in population:
             ind.calculate_fitness()
 
@@ -86,7 +89,16 @@ def main():
         print_generation_stats(population, generation)
 
         if population[0].fitness == 0:
+            print(f"Converged after {generation + 1} generations.")
             break
+        
+        # ---------- Task 2 ----------
+
+        tick_end = timeit.default_timer() #Ends the tick
+        tick_duration = tick_end - tick_start #Calculates the duration of the tick
+        total_elapsed = tick_end - start_time #Calculates the total elapsed time
+        print(f"Tick Duration (sec) = {tick_duration:.4f}") #Prints the duration of the tick
+        print(f"Total Elapsed Time (sec) = {total_elapsed:.4f}") #Prints the total elapsed time
 
         buffer.clear()
         mate(population, buffer)
