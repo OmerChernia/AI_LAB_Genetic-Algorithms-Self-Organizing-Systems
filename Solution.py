@@ -1,5 +1,6 @@
 import random
 import time
+import statistics
 
 GA_POPSIZE = 2048
 GA_MAXITER = 16384
@@ -55,9 +56,21 @@ def mate(population, buffer): #Mates the population, creates a new population by
 
         buffer.append(child)
 
-def print_best(population, generation): #Prints the best individual in the population
-    best = population[0]
-    print(f"Gen {generation}: Best = '{best.string}' (Fitness = {best.fitness})")
+# ---------- Task 1 ----------
+def print_generation_stats(population, generation): #Prints the generation stats
+    fitness_values = [ind.fitness for ind in population] #Gets the fitness values of the population
+    best = population[0] #Gets the best individual in the population
+    worst = population[-1] #Gets the worst individual in the population
+    avg_fitness = sum(fitness_values) / len(fitness_values) #Calculates the average fitness of the population
+    std_dev = statistics.stdev(fitness_values) #Calculates the standard deviation of the fitness of the population
+    fitness_range = worst.fitness - best.fitness #Calculates the fitness range of the population
+
+    print(f"Gen {generation}: Best = '{best.string}' (Fitness = {best.fitness})") #Prints the best individual in the population
+    print(f"  Avg Fitness = {avg_fitness:.2f}") #Prints the average fitness of the population
+    print(f"  Std Dev = {std_dev:.2f}") #Prints the standard deviation of the fitness of the population
+    print(f"  Worst Fitness = {worst.fitness}") #Prints the worst fitness of the population
+    print(f"  Fitness Range = {fitness_range}") #Prints the fitness range of the population
+    print()
 
 def main():
     random.seed(time.time())
@@ -70,7 +83,7 @@ def main():
             ind.calculate_fitness()
 
         sort_population(population)
-        print_best(population, generation)
+        print_generation_stats(population, generation)
 
         if population[0].fitness == 0:
             break
