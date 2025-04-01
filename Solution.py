@@ -83,6 +83,7 @@ def main():
     best_fitness_list = []
     avg_fitness_list = []
     worst_fitness_list = []
+    fitness_distributions = []
 
     for generation in range(GA_MAXITER):
         tick_start = timeit.default_timer()
@@ -90,6 +91,9 @@ def main():
             ind.calculate_fitness()
 
         sort_population(population)
+
+        fitness_values = [ind.fitness for ind in population]
+        fitness_distributions.append(fitness_values.copy())
 
         best_fitness = population[0].fitness
         worst_fitness = population[-1].fitness
@@ -126,6 +130,15 @@ def main():
     plt.ylabel("Fitness")
     plt.title("Fitness Behavior per Generation")
     plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    # ---------- Task 3_B ----------
+    plt.figure(figsize=(12, 6))
+    plt.boxplot(fitness_distributions, showfliers=True)
+    plt.xlabel('Generation')
+    plt.ylabel('Fitness')
+    plt.title('Box Plot of Fitness per Generation')
     plt.grid(True)
     plt.show()
 
