@@ -40,7 +40,7 @@ def elitism(population, buffer, esize): #Copies the esize fittest individuals to
     for i in range(esize):
         buffer[i].fitness = population[i].fitness
 
-# ---------- Task 4 ----------
+# ---------- Task 4: Crossover Operators ----------
 # --- New crossover operator functions ---
 def crossover_single(parent1, parent2):
     tsize = len(parent1.string)
@@ -64,6 +64,10 @@ def crossover_uniform(parent1, parent2):
         else:
             child_chars.append(parent2.string[i])
     return ''.join(child_chars)
+
+def crossover_trivial(parent1, parent2):
+    # Trivial crossover: returns one parent's string (randomly chosen)
+    return parent1.string if random.random() < 0.5 else parent2.string
 # --- End of crossover operator functions ---
 
 def mate(population, buffer): #Mates the population, creates a new population by mating the fittest individuals
@@ -76,13 +80,15 @@ def mate(population, buffer): #Mates the population, creates a new population by
         i1 = random.randint(0, GA_POPSIZE // 2)
         i2 = random.randint(0, GA_POPSIZE // 2)
         
-        # Instead of using a single random crossover point, use the selected operator:
+        # Select crossover operator based on GA_CROSSOVER_OPERATOR
         if GA_CROSSOVER_OPERATOR == "SINGLE":
             child_string = crossover_single(population[i1], population[i2])
         elif GA_CROSSOVER_OPERATOR == "TWO":
             child_string = crossover_two(population[i1], population[i2])
         elif GA_CROSSOVER_OPERATOR == "UNIFORM":
             child_string = crossover_uniform(population[i1], population[i2])
+        elif GA_CROSSOVER_OPERATOR == "TRIVIAL":
+            child_string = crossover_trivial(population[i1], population[i2])
         else:
             child_string = crossover_single(population[i1], population[i2])
         
@@ -112,13 +118,13 @@ def print_generation_stats(population, generation, tick_duration, total_elapsed)
     print()
 
 def main():
-    # ---------- Task 4 ----------
-    # --- User Input for Crossover Operator ---
+    # ---------- Task 4: User Input for Crossover Operator ----------
     print("Select crossover operator:")
     print("1 - SINGLE")
     print("2 - TWO")
     print("3 - UNIFORM")
-    choice = input("Enter your choice (1/2/3): ")
+    print("4 - TRIVIAL")
+    choice = input("Enter your choice (1/2/3/4): ")
     global GA_CROSSOVER_OPERATOR
     if choice == "1":
         GA_CROSSOVER_OPERATOR = "SINGLE"
@@ -126,6 +132,8 @@ def main():
         GA_CROSSOVER_OPERATOR = "TWO"
     elif choice == "3":
         GA_CROSSOVER_OPERATOR = "UNIFORM"
+    elif choice == "4":
+        GA_CROSSOVER_OPERATOR = "TRIVIAL"
     else:
         print("Invalid choice, defaulting to SINGLE")
         GA_CROSSOVER_OPERATOR = "SINGLE"
@@ -196,8 +204,8 @@ def main():
     
     # ---------- Task 5 ----------
     #The algorithm balances exploration and exploitation as follows:
-	#•	Exploration: Random initialization, mutation, and varied crossover operators introduce diversity and allow the search to explore new regions of the solution space.
-	#•	Exploitation: Sorting, elitism, and selecting parents from the top half ensure that the best solutions are propagated and refined over generations.
+    #•	Exploration: Random initialization, mutation, and varied crossover operators introduce diversity and allow the search to explore new regions of the solution space.
+    #•	Exploitation: Sorting, elitism, and selecting parents from the top half ensure that the best solutions are propagated and refined over generations.
     
 
 if __name__ == "__main__":
