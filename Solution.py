@@ -194,6 +194,10 @@ def main():
     plt.grid(True)
     plt.show()
     
+    # ---------- Task 5 ----------
+    #The algorithm balances exploration and exploitation as follows:
+	#•	Exploration: Random initialization, mutation, and varied crossover operators introduce diversity and allow the search to explore new regions of the solution space.
+	#•	Exploitation: Sorting, elitism, and selecting parents from the top half ensure that the best solutions are propagated and refined over generations.
     
 
 if __name__ == "__main__":
