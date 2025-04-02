@@ -3,7 +3,7 @@ import time
 import timeit
 import statistics
 import matplotlib.pyplot as plt
-import math  
+import math  # נדרש לחישוב אנטרופיה
 
 GA_POPSIZE = 2048
 GA_MAXITER = 16384
@@ -17,7 +17,7 @@ GA_FITNESS_HEURISTIC = "ORIGINAL"  # or "LCS"
 GA_BONUS_FACTOR = 0.5  # Bonus for correct position
 
 # ---------- Task 10: Parent Selection Method Parameters ----------
-# Options for parent's selection: "RWS", "SUS", "TournamentDet", "TournamentStoch"
+# Options for parent's selection: "RWS", "SUS", "TournamentDet", "TournamentStoch", "Original"
 GA_PARENT_SELECTION_METHOD = "RWS"  # Default; updated via user input
 GA_TOURNAMENT_K = 5         # For tournament selection (deterministic or stochastic)
 GA_TOURNAMENT_P = 0.8       # For non-deterministic tournament: probability to select the best
@@ -100,7 +100,6 @@ def crossover_trivial(parent1, parent2):
 
 # ---------- Task 10: Parent Selection Methods ----------
 def select_parent_RWS(population):
-    # Roulette Wheel Selection with linear scaling using adjusted fitness
     worst = max(ind.fitness for ind in population)
     adjusted = [worst - ind.fitness for ind in population]
     total = sum(adjusted)
@@ -115,12 +114,10 @@ def select_parent_RWS(population):
     return population[-1]
 
 def select_parent_TournamentDet(population):
-    # Deterministic tournament: choose best among K randomly sampled individuals
     candidates = random.sample(population, GA_TOURNAMENT_K)
     return min(candidates, key=lambda ind: ind.fitness)
 
 def select_parent_TournamentStoch(population):
-    # Stochastic tournament: sample K individuals, sort by fitness, and select
     candidates = random.sample(population, GA_TOURNAMENT_K)
     candidates.sort(key=lambda ind: ind.fitness)
     for candidate in candidates:
@@ -147,6 +144,10 @@ def select_parents_SUS(population, num_parents):
                 break
     return parents
 
+def select_parent_Original(population):
+    # Original method: בוחרים באקראיות מתוך המחצית העליונה
+    return random.choice(population[:len(population)//2])
+
 # ---------- Task 10: Aging Survivor Selection ----------
 def apply_aging(population):
     survivors = []
@@ -154,7 +155,6 @@ def apply_aging(population):
         ind.age += 1
         if ind.age < GA_MAX_AGE:
             survivors.append(ind)
-    # Fill population with new random individuals if needed
     while len(survivors) < GA_POPSIZE:
         new_ind = GAIndividual()
         new_ind.age = 0
@@ -229,7 +229,6 @@ def mate(population, buffer):
     esize = int(GA_POPSIZE * GA_ELITRATE)
     elitism(population, buffer, esize)
     num_offspring = GA_POPSIZE - esize
-    # For SUS, pre-select all needed parents
     sus_parents = []
     if GA_PARENT_SELECTION_METHOD == "SUS":
         sus_parents = select_parents_SUS(population, num_offspring * 2)
@@ -246,10 +245,12 @@ def mate(population, buffer):
         elif GA_PARENT_SELECTION_METHOD == "SUS":
             parent1 = sus_parents.pop(0)
             parent2 = sus_parents.pop(0)
+        elif GA_PARENT_SELECTION_METHOD == "Original":
+            parent1 = select_parent_Original(population)
+            parent2 = select_parent_Original(population)
         else:
             parent1 = random.choice(population)
             parent2 = random.choice(population)
-        # Crossover
         if GA_CROSSOVER_OPERATOR == "SINGLE":
             child_string = crossover_single(parent1, parent2)
         elif GA_CROSSOVER_OPERATOR == "TWO":
@@ -306,7 +307,8 @@ def main():
     print("2 - SUS + Linear Scaling")
     print("3 - Deterministic Tournament (K)")
     print("4 - Non-deterministic Tournament (P, K)")
-    sel_choice = input("Enter your choice (1/2/3/4): ")
+    print("5 - Original (Random from top half)")
+    sel_choice = input("Enter your choice (1/2/3/4/5): ")
     global GA_PARENT_SELECTION_METHOD
     if sel_choice == "1":
         GA_PARENT_SELECTION_METHOD = "RWS"
@@ -316,11 +318,12 @@ def main():
         GA_PARENT_SELECTION_METHOD = "TournamentDet"
     elif sel_choice == "4":
         GA_PARENT_SELECTION_METHOD = "TournamentStoch"
+    elif sel_choice == "5":
+        GA_PARENT_SELECTION_METHOD = "Original"
     else:
         print("Invalid choice, defaulting to RWS")
         GA_PARENT_SELECTION_METHOD = "RWS"
     
-    # Optionally, ניתן לשאול גם על ערכי K, P, וגיל מקסימלי
     try:
         k_val = int(input("Enter tournament parameter K (default 5): "))
         global GA_TOURNAMENT_K
