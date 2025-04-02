@@ -3,6 +3,7 @@ import time
 import timeit
 import statistics
 import matplotlib.pyplot as plt
+import math  # נדרש לחישוב האנטרופיה
 
 GA_POPSIZE = 2048
 GA_MAXITER = 16384
@@ -118,6 +119,43 @@ def mate(population, buffer):
             child.mutate()
         buffer.append(child)
 
+# ---------- Task 9: Genetic Diversity Metrics (Factor Exploration) ----------
+def compute_diversity_metrics(population):
+
+    L = len(GA_TARGET)
+    N = len(population)
+    total_hamming = 0.0
+    total_distinct = 0
+    total_entropy = 0.0
+    
+    # For each gene position, compute frequencies
+    for j in range(L):
+        freq = {}
+        for ind in population:
+            allele = ind.string[j]
+            freq[allele] = freq.get(allele, 0) + 1
+        # (a) Average pairwise difference at this position: 1 - sum(p^2)
+        pos_entropy_component = 0.0
+        pos_p2_sum = 0.0
+        for count in freq.values():
+            p = count / N
+            pos_p2_sum += p * p
+            if p > 0:
+                pos_entropy_component += -p * math.log2(p)
+        avg_diff = 1 - pos_p2_sum  # probability two individuals differ at this gene
+        total_hamming += avg_diff
+        # (b) Number of distinct alleles at this position:
+        total_distinct += len(freq)
+        # (c) Entropy at this position:
+        total_entropy += pos_entropy_component
+    
+    # Multiply avg_diff by L to get average Hamming distance per pair (over entire string)
+    avg_hamming_distance = total_hamming * L
+    avg_distinct = total_distinct / L  # average number of distinct alleles per position
+    avg_entropy = total_entropy / L  # average entropy per position (in bits)
+    
+    return avg_hamming_distance, avg_distinct, avg_entropy
+
 # ---------- Task 1: Generation Stats ----------
 def print_generation_stats(population, generation, tick_duration, total_elapsed):
     fitness_values = [ind.fitness for ind in population]
@@ -133,6 +171,29 @@ def print_generation_stats(population, generation, tick_duration, total_elapsed)
     print(f"  Fitness Range = {fitness_range}")
     print(f"  Tick Duration (sec) = {tick_duration:.4f}")
     print(f"  Total Elapsed Time (sec) = {total_elapsed:.4f}")
+    
+    # ---------- Task 8: Selection Pressure Metrics ----------
+    adjusted = [worst.fitness - ind.fitness for ind in population]
+    mean_adjusted = sum(adjusted) / len(adjusted)
+    std_adjusted = statistics.stdev(adjusted)
+    selection_variance = std_adjusted / mean_adjusted if mean_adjusted != 0 else 0
+    total_adjusted = sum(adjusted)
+    if total_adjusted == 0:
+        probabilities = [1.0 / len(population)] * len(population)
+    else:
+        probabilities = [val / total_adjusted for val in adjusted]
+    top_k = max(1, int(0.1 * len(population)))
+    top_avg = sum(probabilities[:top_k]) / top_k
+    overall_avg = 1.0 / len(population)
+    top_avg_ratio = top_avg / overall_avg 
+    print(f"  Selection Variance = {selection_variance:.6f}")
+    print(f"  Top-Average Selection Probability Ratio = {top_avg_ratio:.2f}")
+    
+    # ---------- Task 9: Genetic Diversity Metrics ----------
+    avg_hamming_distance, avg_distinct, avg_entropy = compute_diversity_metrics(population)
+    print(f"  Avg Pairwise Hamming Distance = {avg_hamming_distance:.2f}")
+    print(f"  Avg Number of Distinct Alleles per Gene = {avg_distinct:.2f}")
+    print(f"  Avg Shannon Entropy per Gene (bits) = {avg_entropy:.2f}")
     print()
 
 def main():
@@ -199,7 +260,10 @@ def main():
         tick_end = timeit.default_timer()
         tick_duration = tick_end - tick_start
         total_elapsed = tick_end - start_time
+        
+        # ---------- Task 1 & Task 8 & Task 9: Generation Stats with Diversity Metrics ----------
         print_generation_stats(population, generation, tick_duration, total_elapsed)
+        
         if population[0].fitness == 0:
             print(f"Converged after {generation + 1} generations.")
             break
