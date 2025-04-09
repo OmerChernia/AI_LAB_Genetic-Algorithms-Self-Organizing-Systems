@@ -26,9 +26,14 @@ GA_TOURNAMENT_P = 0.8       # For non-deterministic tournament: probability to s
 GA_MAX_AGE = 10             # Each individual lives for a fixed number of generations
 
 # לאחר ההגדרות הקיימות
-GA_MODE = "STRING"  # או "ARC"
+GA_MODE = "STRING"  # אפשרויות: "STRING" (HELLO WORLD!), "ARC", או "BINPACKING"
 GA_ARC_TARGET_GRID = None
 GA_ARC_INPUT_GRID = None
+
+# --- גלובליים עבור מצב BINPACKING ---
+BP_ITEMS = []      # רשימת גדלים (integers) של הפריטים
+BP_CAPACITY = None # קיבולת מקסימלית של כל BIN (למשל, 150)
+BP_OPTIMAL = None  # מספר הבקסים האופטימלי (לפי הקובץ)
 
 def lcs_length(s, t):
     """Compute the length of the Longest Common Subsequence between s and t."""
@@ -44,49 +49,65 @@ def lcs_length(s, t):
 
 class GAIndividual:
     def __init__(self, representation=None):
-        self.repr = representation if representation else self.random_repr()
+        self.repr = representation if representation is not None else self.random_repr()
         self.fitness = 0
         self.age = 0
 
     def random_repr(self):
         if GA_MODE == "STRING":
             return ''.join(chr(random.randint(32, 122)) for _ in range(len(GA_TARGET)))
-        else:  # ARC mode
-            # Create random variation from input
+        elif GA_MODE == "ARC":
             grid = [row.copy() for row in GA_ARC_INPUT_GRID]
-            for _ in range(random.randint(1, 5)):  # Random number of initial mutations
+            for _ in range(random.randint(1, 5)):
                 self.mutate_grid(grid)
             return grid
+        elif GA_MODE == "BINPACKING":
+            n = len(BP_ITEMS)
+            perm = list(range(n))
+            random.shuffle(perm)
+            return perm
 
     def mutate_grid(self, grid):
-        # Mutate grid - change random value
         rows = len(grid)
         cols = len(grid[0]) if rows > 0 else 0
         i = random.randint(0, rows-1)
         j = random.randint(0, cols-1)
-        grid[i][j] = random.randint(0, 9)  # Assuming value range 0-9
+        grid[i][j] = random.randint(0, 9)
 
     def calculate_fitness(self):
         if GA_MODE == "STRING":
             self.fitness = sum(abs(ord(self.repr[i]) - ord(GA_TARGET[i])) for i in range(len(GA_TARGET)))
-        else:
-            # Calculate match with target grid
+        elif GA_MODE == "ARC":
             match_count = 0
             for i in range(len(GA_ARC_TARGET_GRID)):
                 for j in range(len(GA_ARC_TARGET_GRID[0])):
                     if self.repr[i][j] == GA_ARC_TARGET_GRID[i][j]:
                         match_count += 1
             total_cells = len(GA_ARC_TARGET_GRID) * len(GA_ARC_TARGET_GRID[0])
-            self.fitness = total_cells - match_count  # Lower value is better
+            self.fitness = total_cells - match_count
 
     # ---------- Task 7 ----------
     def calculate_fitness_lcs(self):
-        """New fitness based on LCS with offset adjustment."""
         if GA_MODE == "STRING":
             lcs = lcs_length(self.repr, GA_TARGET)
             bonus = sum(1 for i in range(len(GA_TARGET)) if self.repr[i] == GA_TARGET[i])
             offset = GA_BONUS_FACTOR * len(GA_TARGET)
             self.fitness = (len(GA_TARGET) - lcs) - (GA_BONUS_FACTOR * bonus) + offset
+
+    def calculate_fitness_binpacking(self):
+        bins = []
+        for i in self.repr:
+            item_size = BP_ITEMS[i]
+            placed = False
+            for b in bins:
+                if sum(BP_ITEMS[j] for j in b) + item_size <= BP_CAPACITY:
+                    b.append(i)
+                    placed = True
+                    break
+            if not placed:
+                bins.append([i])
+        num_bins = len(bins)
+        self.fitness = num_bins - BP_OPTIMAL
 
     def mutate(self):
         if GA_MODE == "STRING":
@@ -95,6 +116,9 @@ class GAIndividual:
             s = list(self.repr)
             s[pos] = delta
             self.repr = ''.join(s)
+        elif GA_MODE == "BINPACKING":
+            a, b = random.sample(range(len(self.repr)), 2)
+            self.repr[a], self.repr[b] = self.repr[b], self.repr[a]
 
 def init_population():
     return [GAIndividual() for _ in range(GA_POPSIZE)]
@@ -103,7 +127,7 @@ def sort_population(population):
     population.sort(key=lambda ind: ind.fitness)
 
 def elitism(population, buffer, esize):
-    buffer[:esize] = [GAIndividual(ind.repr) for ind in population[:esize]]
+    buffer[:esize] = [GAIndividual(ind.repr.copy() if isinstance(ind.repr, list) else ind.repr) for ind in population[:esize]]
     for i in range(esize):
         buffer[i].fitness = population[i].fitness
         buffer[i].age = population[i].age
@@ -136,19 +160,28 @@ def crossover_grid(parent1, parent2):
     grid1 = parent1.repr
     grid2 = parent2.repr
     child_grid = [row.copy() for row in grid1]
-    
-    # Horizontal or vertical crossover
     if random.random() < 0.5:
-        # Horizontal split
         split_row = random.randint(1, len(grid1)-1)
         child_grid[split_row:] = grid2[split_row:]
     else:
-        # Vertical split
         split_col = random.randint(1, len(grid1[0])-1)
         for i in range(len(grid1)):
             child_grid[i][split_col:] = grid2[i][split_col:]
-    
     return child_grid
+
+def crossover_binpacking(parent1, parent2):
+    size = len(parent1.repr)
+    a, b = sorted(random.sample(range(size), 2))
+    child = [-1] * size
+    child[a:b] = parent1.repr[a:b]
+    pos = b
+    for gene in parent2.repr[b:] + parent2.repr[:b]:
+        if gene not in child:
+            if pos >= size:
+                pos = 0
+            child[pos] = gene
+            pos += 1
+    return child
 
 # ---------- Task 10: Parent Selection Methods ----------
 def select_parent_RWS(population):
@@ -197,7 +230,6 @@ def select_parents_SUS(population, num_parents):
     return parents
 
 def select_parent_Original(population):
-    # Original method: בוחרים באקראיות מתוך המחצית העליונה
     return random.choice(population[:len(population)//2])
 
 # ---------- Task 10: Aging Survivor Selection ----------
@@ -237,12 +269,10 @@ def compute_diversity_metrics(population):
         avg_entropy = total_entropy / L
         return avg_hamming_distance, avg_distinct, avg_entropy
     else:
-        # Calculate diversity for matrices
         rows = len(GA_ARC_TARGET_GRID)
         cols = len(GA_ARC_TARGET_GRID[0])
         total_distinct = 0
         total_entropy = 0.0
-        
         for i in range(rows):
             for j in range(cols):
                 freq = {}
@@ -253,10 +283,9 @@ def compute_diversity_metrics(population):
                 for count in freq.values():
                     p = count / GA_POPSIZE
                     total_entropy -= p * math.log2(p) if p > 0 else 0
-        
         avg_distinct = total_distinct / (rows * cols)
         avg_entropy = total_entropy / (rows * cols)
-        return 0, avg_distinct, avg_entropy  # Hamming not relevant here
+        return 0, avg_distinct, avg_entropy
 
 # ---------- Task 1: Generation Stats, Task 8 & Task 9 Combined ----------
 def print_generation_stats(population, generation, tick_duration, total_elapsed):
@@ -266,13 +295,10 @@ def print_generation_stats(population, generation, tick_duration, total_elapsed)
     avg_fitness = sum(fitness_values) / len(fitness_values)
     std_dev = statistics.stdev(fitness_values)
     fitness_range = worst.fitness - best.fitness
-    
-    # Update display line for string mode
     if GA_MODE == "STRING":
         best_repr = f"'{best.repr}'"
     else:
-        best_repr = f"Grid {best.repr[0][:3]}..."  # Truncated display for matrices
-    
+        best_repr = f"{best.repr}"
     print(f"Gen {generation}: Best = {best_repr} (Fitness = {best.fitness})")
     print(f"  Avg Fitness = {avg_fitness:.2f}")
     print(f"  Std Dev = {std_dev:.2f}")
@@ -280,8 +306,6 @@ def print_generation_stats(population, generation, tick_duration, total_elapsed)
     print(f"  Fitness Range = {fitness_range}")
     print(f"  Tick Duration (sec) = {tick_duration:.4f}")
     print(f"  Total Elapsed Time (sec) = {total_elapsed:.4f}")
-    
-    # ---------- Task 8: Selection Pressure Metrics ----------
     adjusted = [worst.fitness - ind.fitness for ind in population]
     mean_adjusted = sum(adjusted) / len(adjusted)
     std_adjusted = statistics.stdev(adjusted)
@@ -297,15 +321,13 @@ def print_generation_stats(population, generation, tick_duration, total_elapsed)
     top_avg_ratio = top_avg / overall_avg 
     print(f"  Selection Variance = {selection_variance:.6f}")
     print(f"  Top-Average Selection Probability Ratio = {top_avg_ratio:.2f}")
-    
-    # ---------- Task 9: Genetic Diversity Metrics ----------
     avg_hamming_distance, avg_distinct, avg_entropy = compute_diversity_metrics(population)
     print(f"  Avg Pairwise Hamming Distance = {avg_hamming_distance:.2f}")
     print(f"  Avg Number of Distinct Alleles per Gene = {avg_distinct:.2f}")
     print(f"  Avg Shannon Entropy per Gene (bits) = {avg_entropy:.2f}")
     print()
 
-# ---------- Task 10: Mating Function with Various Parent Selection Methods ----------
+# ---------- Task 10: Mating Function ----------
 def mate(population, buffer):
     esize = int(GA_POPSIZE * GA_ELITRATE)
     elitism(population, buffer, esize)
@@ -341,34 +363,27 @@ def mate(population, buffer):
                 child_repr = crossover_uniform(parent1, parent2)
             elif GA_CROSSOVER_OPERATOR == "TRIVIAL":
                 child_repr = crossover_trivial(parent1, parent2)
-        else:
+        elif GA_MODE == "ARC":
             child_repr = crossover_grid(parent1, parent2)
+        elif GA_MODE == "BINPACKING":
+            child_repr = crossover_binpacking(parent1, parent2)
         child = GAIndividual(child_repr)
         if random.random() < GA_MUTATIONRATE:
-            if GA_MODE == "STRING":
-                child.mutate()
-            else:
-                child.mutate_grid(child.repr)
+            child.mutate()
         buffer.append(child)
 
 def plot_grids(input_grid, target_grid, solution_grid=None):
     fig = plt.figure(figsize=(15, 5))
-    
-    # Input Grid
     ax1 = fig.add_subplot(131)
     ax1.matshow(input_grid, cmap='viridis')
     ax1.set_title("Input Grid")
     for (i, j), val in np.ndenumerate(input_grid):
         ax1.text(j, i, f'{val}', ha='center', va='center', color='w' if val > 5 else 'k')
-    
-    # Target Grid
     ax2 = fig.add_subplot(132)
     ax2.matshow(target_grid, cmap='viridis')
     ax2.set_title("Target Grid")
     for (i, j), val in np.ndenumerate(target_grid):
         ax2.text(j, i, f'{val}', ha='center', va='center', color='w' if val > 5 else 'k')
-    
-    # Solution Grid
     ax3 = fig.add_subplot(133)
     if solution_grid is not None:
         ax3.matshow(solution_grid, cmap='viridis')
@@ -378,60 +393,174 @@ def plot_grids(input_grid, target_grid, solution_grid=None):
     else:
         ax3.axis('off')
         ax3.text(0.5, 0.5, 'No solution found', ha='center', va='center')
-    
     plt.tight_layout()
     plt.show()
 
+def print_bin_details(bins, total_runtime):
+    deviation = len(bins) - BP_OPTIMAL
+    print(f"Results for {bp_instance['name']}:")
+    print(f"Bins used: {len(bins)}")
+    print(f"Theoretical minimum: {BP_OPTIMAL}")
+    print(f"Deviation from optimal: {deviation} bins")
+    print(f"Runtime: {total_runtime:.4f}s")
+    print("Bin details:")
+    for idx, b in enumerate(bins, start=1):
+        sizes = [BP_ITEMS[i] for i in b]
+        total = sum(sizes)
+        print(f"Bin {idx}: {sizes}  (Total: {total}/{BP_CAPACITY})")
+
 def main():
-    global GA_MODE, GA_ARC_TARGET_GRID, GA_ARC_INPUT_GRID
-    
+    global GA_MODE, GA_ARC_TARGET_GRID, GA_ARC_INPUT_GRID, bp_instance
     print("Select mode:")
     print("1 - String evolution")
     print("2 - ARC puzzle")
-    mode_choice = input("Enter your choice (1/2): ")
+    print("3 - Bin Packing")
+    mode_choice = input("Enter your choice (1/2/3): ").strip()
     
     if mode_choice == "2":
         GA_MODE = "ARC"
-        json_path = input("Enter path to ARC JSON file: ")
+        json_path = input("Enter path to ARC JSON file: ").strip()
         try:
             with open(json_path) as f:
                 data = json.load(f)
-            
-            # הצגת רשימת התרגילים הקיימים
             num_examples = len(data['train'])
             print(f"\nFound {num_examples} training examples:")
             for i, example in enumerate(data['train']):
                 input_grid = example['input']
                 print(f"{i+1}. Input size: {len(input_grid)}x{len(input_grid[0])}")
-            
-            # בחירת תרגיל
             example_choice = int(input(f"\nSelect example (1-{num_examples}): ")) - 1
             if example_choice < 0 or example_choice >= num_examples:
                 print("Invalid choice, using first example")
                 example_choice = 0
-                
             selected_example = data['train'][example_choice]
             GA_ARC_INPUT_GRID = selected_example['input']
             GA_ARC_TARGET_GRID = selected_example['output']
-            
-            # המרה ל-numpy arrays
             input_np = np.array(GA_ARC_INPUT_GRID)
             target_np = np.array(GA_ARC_TARGET_GRID)
-            
-            # בדיקת גודל מטריצות
-            if len(GA_ARC_INPUT_GRID) != len(GA_ARC_TARGET_GRID) or \
-               len(GA_ARC_INPUT_GRID[0]) != len(GA_ARC_TARGET_GRID[0]):
+            if len(GA_ARC_INPUT_GRID) != len(GA_ARC_TARGET_GRID) or len(GA_ARC_INPUT_GRID[0]) != len(GA_ARC_TARGET_GRID[0]):
                 raise ValueError("Input and target grids must have the same dimensions")
-                
         except Exception as e:
             print(f"Error loading ARC puzzle: {e}")
             exit(1)
+    elif mode_choice == "3":
+        GA_MODE = "BINPACKING"
+        file_path = input("Enter path to BINPACKING file (default 'binpack1.txt'): ").strip()
+        if not file_path:
+            file_path = "binpack1.txt"
+        try:
+            with open(file_path) as f:
+                lines = f.read().strip().splitlines()
+            num_problems = int(lines[0].strip())
+            bp_problems = []
+            idx = 1
+            for p in range(num_problems):
+                problem_name = lines[idx].strip()
+                idx += 1
+                parts = lines[idx].strip().split()
+                idx += 1
+                capacity = int(parts[0])
+                num_items = int(parts[1])
+                optimal = int(parts[2])
+                items = [int(lines[idx+i].strip()) for i in range(num_items)]
+                idx += num_items
+                bp_problems.append({
+                    "name": problem_name,
+                    "capacity": capacity,
+                    "num_items": num_items,
+                    "optimal": optimal,
+                    "items": items
+                })
+            print(f"Found {len(bp_problems)} bin packing problems.")
+            chosen_indices_str = input("Enter indices of 5 problems to solve (1-indexed, separated by commas, default first 5): ").strip()
+            if not chosen_indices_str:
+                chosen_indices = list(range(5))
+            else:
+                chosen_indices = [int(x.strip()) - 1 for x in chosen_indices_str.split(",")]
+                if len(chosen_indices) != 5:
+                    print("Invalid number of problems, defaulting to first 5.")
+                    chosen_indices = list(range(5))
+            for index in chosen_indices:
+                bp_instance = bp_problems[index]
+                print(f"\nSolving bin packing problem {bp_instance['name']}: capacity {bp_instance['capacity']}, {bp_instance['num_items']} items, optimal bins {bp_instance['optimal']}")
+                global BP_ITEMS, BP_CAPACITY, BP_OPTIMAL
+                BP_ITEMS = bp_instance["items"]
+                BP_CAPACITY = bp_instance["capacity"]
+                BP_OPTIMAL = bp_instance["optimal"]
+                population = [GAIndividual() for _ in range(GA_POPSIZE)]
+                buffer = []
+                best_solution = None
+                best_fitness_list = []
+                start_time = timeit.default_timer()
+                consecutive_ones = 0  # סופר דורות רציפים עם פיטנס 1
+                for generation in range(50):
+                    tick_start = timeit.default_timer()
+                    for ind in population:
+                        ind.calculate_fitness_binpacking()
+                    sort_population(population)
+                    best_fitness = population[0].fitness
+                    best_fitness_list.append(best_fitness)
+                    tick_end = timeit.default_timer()
+                    tick_duration = tick_end - tick_start
+                    total_elapsed = tick_end - start_time
+                    print(f"Problem {bp_instance['name']} Gen {generation}: Best fitness = {best_fitness} (Tick: {tick_duration:.4f}s, Total: {total_elapsed:.4f}s)")
+                    
+                    if best_fitness == 1:
+                        consecutive_ones += 1
+                    else:
+                        consecutive_ones = 0
+                    if consecutive_ones >= 5:
+                        print(f"5 consecutive generations with fitness 1 reached at generation {generation}.")
+                        break
+                    buffer = []
+                    esize = int(GA_POPSIZE * GA_ELITRATE)
+                    elitism(population, buffer, esize)
+                    for i in range(esize, GA_POPSIZE):
+                        parent1 = random.choice(population[:len(population)//2])
+                        parent2 = random.choice(population[:len(population)//2])
+                        child_repr = crossover_binpacking(parent1, parent2)
+                        child = GAIndividual(child_repr)
+                        if random.random() < GA_MUTATIONRATE:
+                            child.mutate()
+                        buffer.append(child)
+                    population = buffer
+                    population = apply_aging(population)
+                # בסיום הריצה עבור הבעיה – חישוב חלוקת ה-BINS הסופית מהפרט הטוב ביותר
+                best_solution = population[0].repr
+                final_bins = []
+                for i in best_solution:
+                    size = BP_ITEMS[i]
+                    placed = False
+                    for b in final_bins:
+                        if sum(BP_ITEMS[j] for j in b) + size <= BP_CAPACITY:
+                            b.append(i)
+                            placed = True
+                            break
+                    if not placed:
+                        final_bins.append([i])
+                # מיון הבינס לא לפי BP_ITEMS[b[0]] אלא לפי המספר הסידורי (נרצה להדפיס בסדר מ-1 ועד N)
+                # לכן נדפיס את הרשימה הסופית כפי שהיא, כאשר אנו נדפיס את BIN i כ-"Bin i"
+                total_runtime = total_elapsed
+                print(f"\nResults for {bp_instance['name']}:")
+                print(f"Bins used: {len(final_bins)}")
+                print(f"Theoretical minimum: {BP_OPTIMAL}")
+                deviation = len(final_bins) - BP_OPTIMAL
+                print(f"Deviation from optimal: {deviation} bins")
+                print(f"Runtime: {total_runtime:.4f}s")
+                print("Bin details:")
+                for idx, b in enumerate(final_bins, start=1):
+                    sizes = [BP_ITEMS[i] for i in b]
+                    total = sum(sizes)
+                    print(f"Bin {idx}: {sizes}  (Total: {total}/{BP_CAPACITY})")
+            exit(0)
+        except Exception as e:
+            print("Error loading bin packing file:", e)
+            exit(1)
     else:
-        # ---------- User Input for Fitness Heuristic ----------
+        GA_MODE = "STRING"
         print("Select fitness heuristic:")
         print("1 - ORIGINAL (sum of differences)")
         print("2 - LCS-based")
-        fitness_choice = input("Enter your choice (1/2): ")
+        fitness_choice = input("Enter your choice (1/2): ").strip()
         global GA_FITNESS_HEURISTIC
         if fitness_choice == "1":
             GA_FITNESS_HEURISTIC = "ORIGINAL"
@@ -440,15 +569,13 @@ def main():
         else:
             print("Invalid choice, defaulting to ORIGINAL")
             GA_FITNESS_HEURISTIC = "ORIGINAL"
-        
-        # ---------- User Input for Crossover Operator ----------
         print("Select crossover operator:")
         print("1 - SINGLE")
         print("2 - TWO")
         print("3 - UNIFORM")
         print("4 - TRIVIAL")
         print("5 - GRID")
-        choice = input("Enter your choice (1/2/3/4/5): ")
+        choice = input("Enter your choice (1/2/3/4/5): ").strip()
         global GA_CROSSOVER_OPERATOR
         if choice == "1":
             GA_CROSSOVER_OPERATOR = "SINGLE"
@@ -463,15 +590,13 @@ def main():
         else:
             print("Invalid choice, defaulting to SINGLE")
             GA_CROSSOVER_OPERATOR = "SINGLE"
-        
-        # ---------- Task 10: User Input for Parent Selection Method ----------
         print("Select parent selection method:")
         print("1 - RWS + Linear Scaling")
         print("2 - SUS + Linear Scaling")
         print("3 - Deterministic Tournament (K)")
         print("4 - Non-deterministic Tournament (P, K)")
         print("5 - Original (Random from top half)")
-        sel_choice = input("Enter your choice (1/2/3/4/5): ")
+        sel_choice = input("Enter your choice (1/2/3/4/5): ").strip()
         global GA_PARENT_SELECTION_METHOD
         if sel_choice == "1":
             GA_PARENT_SELECTION_METHOD = "RWS"
@@ -486,21 +611,20 @@ def main():
         else:
             print("Invalid choice, defaulting to RWS")
             GA_PARENT_SELECTION_METHOD = "RWS"
-        
         try:
-            k_val = int(input("Enter tournament parameter K (default 5): "))
+            k_val = int(input("Enter tournament parameter K (default 5): ").strip())
             global GA_TOURNAMENT_K
             GA_TOURNAMENT_K = k_val
         except:
             GA_TOURNAMENT_K = 5
         try:
-            p_val = float(input("Enter tournament probability P (default 0.8): "))
+            p_val = float(input("Enter tournament probability P (default 0.8): ").strip())
             global GA_TOURNAMENT_P
             GA_TOURNAMENT_P = p_val
         except:
             GA_TOURNAMENT_P = 0.8
         try:
-            age_val = int(input("Enter maximum age (generations) for aging (default 10): "))
+            age_val = int(input("Enter maximum age (generations) for aging (default 10): ").strip())
             global GA_MAX_AGE
             GA_MAX_AGE = age_val
         except:
@@ -508,14 +632,12 @@ def main():
 
     random.seed(time.time())
     start_time = timeit.default_timer()
-
     population = init_population()
     buffer = []
     best_fitness_list = []
     avg_fitness_list = []
     worst_fitness_list = []
     fitness_distributions = []
-
     generation = 0
     best_solution = None
     while generation < GA_MAXITER:
@@ -537,10 +659,7 @@ def main():
         tick_end = timeit.default_timer()
         tick_duration = tick_end - tick_start
         total_elapsed = tick_end - start_time
-        
-        # ---------- Task 1, Task 8 & Task 9: Generation Stats with Diversity Metrics ----------
         print_generation_stats(population, generation, tick_duration, total_elapsed)
-        
         if population[0].fitness == 0:
             best_solution = population[0].repr
             print(f"\n*** Converged after {generation + 1} generations ***")
@@ -548,24 +667,19 @@ def main():
         buffer.clear()
         mate(population, buffer)
         population, buffer = buffer, population
-        # ---------- Task 10: Apply Aging ----------
         population = apply_aging(population)
         generation += 1
-
     if best_solution is None and GA_MODE == "ARC":
         print("\n*** Final Best Attempt ***")
-        plot_grids(input_np, target_np, np.array(population[0].repr))
+        plot_grids(np.array(GA_ARC_INPUT_GRID), np.array(GA_ARC_TARGET_GRID), np.array(population[0].repr))
         print(f"Matching Cells: {len(GA_ARC_TARGET_GRID)*len(GA_ARC_TARGET_GRID[0]) - population[0].fitness}/{len(GA_ARC_TARGET_GRID)*len(GA_ARC_TARGET_GRID[0])}")
     elif GA_MODE == "ARC":
         solution_np = np.array(best_solution) if best_solution else None
-        # הוספת ההצגה הגרפית לפני הגרפים
-        plot_grids(input_np, target_np, solution_np)
+        plot_grids(np.array(GA_ARC_INPUT_GRID), np.array(GA_ARC_TARGET_GRID), solution_np)
         if best_solution is None:
             print(f"\nMatching Cells: {len(GA_ARC_TARGET_GRID)*len(GA_ARC_TARGET_GRID[0]) - population[0].fitness}/{len(GA_ARC_TARGET_GRID)*len(GA_ARC_TARGET_GRID[0])}")
-
-    # ---------- Task 3_A: Fitness Behavior Plot ----------
-    generations = list(range(len(best_fitness_list)))
     plt.figure(figsize=(10, 6))
+    generations = list(range(len(best_fitness_list)))
     plt.plot(generations, best_fitness_list, label="Best Fitness")
     plt.plot(generations, avg_fitness_list, label="Average Fitness")
     plt.plot(generations, worst_fitness_list, label="Worst Fitness")
@@ -575,8 +689,6 @@ def main():
     plt.legend()
     plt.grid(True)
     plt.show()
-
-    # ---------- Task 3_B: Box Plot of Fitness per Generation ----------
     plt.figure(figsize=(12, 6))
     plt.boxplot(fitness_distributions, showfliers=True)
     plt.xlabel('Generation')
@@ -584,7 +696,6 @@ def main():
     plt.title('Box Plot of Fitness per Generation')
     plt.grid(True)
     plt.show()
-    
     # ---------- Task 5: Exploration vs. Exploitation Explanation ----------
     # The algorithm balances exploration and exploitation as follows:
     # • Exploration: Random initialization, mutation, and varied crossover operators introduce diversity
