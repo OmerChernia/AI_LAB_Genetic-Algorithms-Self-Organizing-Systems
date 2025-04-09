@@ -3,78 +3,99 @@ import time
 import timeit
 import statistics
 import matplotlib.pyplot as plt
-import math  # Required for entropy calculation
+import math  # Required for entropy calculations
 import json
 import numpy as np
 
-GA_POPSIZE = 2048
-GA_MAXITER = 16384
-GA_ELITRATE = 0.10
-GA_MUTATIONRATE = 0.25
-GA_TARGET = "Hello World!"
-GA_CROSSOVER_OPERATOR = "SINGLE"  # Default; will be updated based on user input
+# Global GA parameters
+GA_POPSIZE = 2048                 # Population size for the genetic algorithm
+GA_MAXITER = 16384                # Maximum number of generations (used in non-Bin Packing modes)
+GA_ELITRATE = 0.10                # Elitism rate (percentage of best individuals preserved)
+GA_MUTATIONRATE = 0.25            # Mutation probability
+GA_TARGET = "Hello World!"        # Target string for the String evolution mode
+GA_CROSSOVER_OPERATOR = "SINGLE"  # Default crossover operator; may be updated based on user input
 
-# Global variables for fitness heuristic and selection method:
-GA_FITNESS_HEURISTIC = "ORIGINAL"  # or "LCS"
-GA_BONUS_FACTOR = 0.5  # Bonus for correct position
+# Global fitness heuristic parameters
+GA_FITNESS_HEURISTIC = "ORIGINAL"  # Fitness heuristic ("ORIGINAL" or "LCS")
+GA_BONUS_FACTOR = 0.5              # Bonus factor for correct positions in LCS-based fitness
 
 # ---------- Task 10: Parent Selection Method Parameters ----------
-# Options for parent's selection: "RWS", "SUS", "TournamentDet", "TournamentStoch", "Original"
-GA_PARENT_SELECTION_METHOD = "RWS"  # Default; updated via user input
-GA_TOURNAMENT_K = 5         # For tournament selection (deterministic or stochastic)
-GA_TOURNAMENT_P = 0.8       # For non-deterministic tournament: probability to select the best
-GA_MAX_AGE = 10             # Each individual lives for a fixed number of generations
+# Parent selection methods: "RWS", "SUS", "TournamentDet", "TournamentStoch", "Original"
+GA_PARENT_SELECTION_METHOD = "RWS"  # Default parent selection method (can be updated by user)
+GA_TOURNAMENT_K = 5                # Tournament size for tournament-based selection
+GA_TOURNAMENT_P = 0.8              # Probability of selecting the best in a stochastic tournament
+GA_MAX_AGE = 10                    # Maximum age for an individual (for aging survivor selection)
 
-# לאחר ההגדרות הקיימות
-GA_MODE = "STRING"  # אפשרויות: "STRING" (HELLO WORLD!), "ARC", או "BINPACKING"
+# Global mode variables; these change the problem being solved.
+# Options: "STRING" (for Hello World evolution), "ARC" (for ARC puzzles), or "BINPACKING" (for bin packing problems)
+GA_MODE = "STRING"
 GA_ARC_TARGET_GRID = None
 GA_ARC_INPUT_GRID = None
 
-# --- גלובליים עבור מצב BINPACKING ---
-BP_ITEMS = []      # רשימת גדלים (integers) של הפריטים
-BP_CAPACITY = None # קיבולת מקסימלית של כל BIN (למשל, 150)
-BP_OPTIMAL = None  # מספר הבקסים האופטימלי (לפי הקובץ)
+# Global variables for BINPACKING mode
+BP_ITEMS = []      # List of item sizes (integers) for the bin packing problem
+BP_CAPACITY = None # Maximum capacity of each bin (e.g., 150)
+BP_OPTIMAL = None  # The theoretical optimal number of bins (provided in the file)
 
 def lcs_length(s, t):
-    """Compute the length of the Longest Common Subsequence between s and t."""
+    """
+    Compute the length of the Longest Common Subsequence (LCS) between strings s and t.
+    This function is used for the LCS-based fitness heuristic.
+    """
     m, n = len(s), len(t)
-    dp = [[0]*(n+1) for _ in range(m+1)]
+    # Initialize a matrix dp with dimensions (m+1) x (n+1)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
     for i in range(m):
         for j in range(n):
             if s[i] == t[j]:
-                dp[i+1][j+1] = dp[i][j] + 1
+                dp[i+1][j+1] = dp[i][j] + 1  # Increase count if characters match
             else:
                 dp[i+1][j+1] = max(dp[i+1][j], dp[i][j+1])
     return dp[m][n]
 
 class GAIndividual:
+    """
+    Class representing an individual (candidate solution) in the genetic algorithm.
+    The representation depends on the mode: string (for Hello World), ARC puzzles, or bin packing.
+    """
     def __init__(self, representation=None):
+        # If a representation is provided, use it; otherwise, generate a random one based on the current mode.
         self.repr = representation if representation is not None else self.random_repr()
-        self.fitness = 0
-        self.age = 0
+        self.fitness = 0  # The fitness value of the individual (lower is better for our minimization problems)
+        self.age = 0      # The age in generations (used for aging-based survivor selection)
 
     def random_repr(self):
+        """Generate a random representation based on the current GA mode."""
         if GA_MODE == "STRING":
+            # Create a random string of the same length as GA_TARGET
             return ''.join(chr(random.randint(32, 122)) for _ in range(len(GA_TARGET)))
         elif GA_MODE == "ARC":
+            # Duplicate the input grid and perform a few random mutations
             grid = [row.copy() for row in GA_ARC_INPUT_GRID]
             for _ in range(random.randint(1, 5)):
                 self.mutate_grid(grid)
             return grid
         elif GA_MODE == "BINPACKING":
+            # Create a random permutation of indices representing the order of items
             n = len(BP_ITEMS)
             perm = list(range(n))
             random.shuffle(perm)
             return perm
 
     def mutate_grid(self, grid):
+        """Randomly mutate the grid by changing one random cell's value."""
         rows = len(grid)
         cols = len(grid[0]) if rows > 0 else 0
-        i = random.randint(0, rows-1)
-        j = random.randint(0, cols-1)
+        i = random.randint(0, rows - 1)
+        j = random.randint(0, cols - 1)
         grid[i][j] = random.randint(0, 9)
 
     def calculate_fitness(self):
+        """
+        Calculate fitness for the individual.
+        In STRING mode, it computes the sum of absolute differences per character.
+        In ARC mode, it counts the number of mismatching cells.
+        """
         if GA_MODE == "STRING":
             self.fitness = sum(abs(ord(self.repr[i]) - ord(GA_TARGET[i])) for i in range(len(GA_TARGET)))
         elif GA_MODE == "ARC":
@@ -88,6 +109,10 @@ class GAIndividual:
 
     # ---------- Task 7 ----------
     def calculate_fitness_lcs(self):
+        """
+        Calculate fitness based on the Longest Common Subsequence (LCS) method,
+        adjusted with an offset and bonus.
+        """
         if GA_MODE == "STRING":
             lcs = lcs_length(self.repr, GA_TARGET)
             bonus = sum(1 for i in range(len(GA_TARGET)) if self.repr[i] == GA_TARGET[i])
@@ -95,6 +120,12 @@ class GAIndividual:
             self.fitness = (len(GA_TARGET) - lcs) - (GA_BONUS_FACTOR * bonus) + offset
 
     def calculate_fitness_binpacking(self):
+        """
+        Calculate fitness for bin packing:
+        Use a First-Fit approach to place items into bins, ensuring that
+        the sum of item sizes in each bin does not exceed BP_CAPACITY.
+        The fitness is the number of bins used minus the theoretical optimal.
+        """
         bins = []
         for i in self.repr:
             item_size = BP_ITEMS[i]
@@ -110,6 +141,11 @@ class GAIndividual:
         self.fitness = num_bins - BP_OPTIMAL
 
     def mutate(self):
+        """
+        Apply mutation to the individual.
+        In STRING mode, change a random character.
+        In BINPACKING mode, perform a swap mutation on the permutation.
+        """
         if GA_MODE == "STRING":
             pos = random.randint(0, len(self.repr) - 1)
             delta = chr((ord(self.repr[pos]) + random.randint(0, 90)) % 122)
@@ -121,24 +157,35 @@ class GAIndividual:
             self.repr[a], self.repr[b] = self.repr[b], self.repr[a]
 
 def init_population():
+    """Initialize and return a list of GAIndividual objects forming the initial population."""
     return [GAIndividual() for _ in range(GA_POPSIZE)]
 
 def sort_population(population):
+    """Sort the population in increasing order of fitness (lower is better)."""
     population.sort(key=lambda ind: ind.fitness)
 
 def elitism(population, buffer, esize):
-    buffer[:esize] = [GAIndividual(ind.repr.copy() if isinstance(ind.repr, list) else ind.repr) for ind in population[:esize]]
+    """
+    Preserve the top esize individuals into the new population buffer.
+    Creates a copy of those individuals to ensure they are not altered by future mutations.
+    """
+    buffer[:esize] = [
+        GAIndividual(ind.repr.copy() if isinstance(ind.repr, list) else ind.repr)
+        for ind in population[:esize]
+    ]
     for i in range(esize):
         buffer[i].fitness = population[i].fitness
         buffer[i].age = population[i].age
 
 # ---------- Task 4: Crossover Operators ----------
 def crossover_single(parent1, parent2):
+    """Perform single-point crossover between two parents."""
     tsize = len(parent1.repr)
     spos = random.randint(0, tsize - 1)
     return parent1.repr[:spos] + parent2.repr[spos:]
 
 def crossover_two(parent1, parent2):
+    """Perform two-point crossover between two parents."""
     tsize = len(parent1.repr)
     if tsize < 2:
         return crossover_single(parent1, parent2)
@@ -147,6 +194,7 @@ def crossover_two(parent1, parent2):
     return parent1.repr[:point1] + parent2.repr[point1:point2] + parent1.repr[point2:]
 
 def crossover_uniform(parent1, parent2):
+    """Perform uniform crossover between two parents."""
     tsize = len(parent1.repr)
     child_chars = []
     for i in range(tsize):
@@ -154,22 +202,28 @@ def crossover_uniform(parent1, parent2):
     return ''.join(child_chars)
 
 def crossover_trivial(parent1, parent2):
+    """Return one of the parents at random."""
     return parent1.repr if random.random() < 0.5 else parent2.repr
 
 def crossover_grid(parent1, parent2):
+    """Crossover for ARC mode using a grid split."""
     grid1 = parent1.repr
     grid2 = parent2.repr
     child_grid = [row.copy() for row in grid1]
     if random.random() < 0.5:
-        split_row = random.randint(1, len(grid1)-1)
+        split_row = random.randint(1, len(grid1) - 1)
         child_grid[split_row:] = grid2[split_row:]
     else:
-        split_col = random.randint(1, len(grid1[0])-1)
+        split_col = random.randint(1, len(grid1[0]) - 1)
         for i in range(len(grid1)):
             child_grid[i][split_col:] = grid2[i][split_col:]
     return child_grid
 
 def crossover_binpacking(parent1, parent2):
+    """
+    Perform Order Crossover (OX) on two parents for bin packing.
+    This ensures that the child is a valid permutation.
+    """
     size = len(parent1.repr)
     a, b = sorted(random.sample(range(size), 2))
     child = [-1] * size
@@ -185,6 +239,10 @@ def crossover_binpacking(parent1, parent2):
 
 # ---------- Task 10: Parent Selection Methods ----------
 def select_parent_RWS(population):
+    """
+    Select a parent using Roulette Wheel Selection (fitness-proportional).
+    The probability of selection is proportional to (worst - fitness).
+    """
     worst = max(ind.fitness for ind in population)
     adjusted = [worst - ind.fitness for ind in population]
     total = sum(adjusted)
@@ -199,10 +257,12 @@ def select_parent_RWS(population):
     return population[-1]
 
 def select_parent_TournamentDet(population):
+    """Select a parent using deterministic tournament selection."""
     candidates = random.sample(population, GA_TOURNAMENT_K)
     return min(candidates, key=lambda ind: ind.fitness)
 
 def select_parent_TournamentStoch(population):
+    """Select a parent using stochastic tournament selection."""
     candidates = random.sample(population, GA_TOURNAMENT_K)
     candidates.sort(key=lambda ind: ind.fitness)
     for candidate in candidates:
@@ -211,6 +271,10 @@ def select_parent_TournamentStoch(population):
     return candidates[-1]
 
 def select_parents_SUS(population, num_parents):
+    """
+    Select parents using Stochastic Universal Sampling (SUS).
+    This method provides a more even chance of selection.
+    """
     worst = max(ind.fitness for ind in population)
     adjusted = [worst - ind.fitness for ind in population]
     total = sum(adjusted)
@@ -230,10 +294,15 @@ def select_parents_SUS(population, num_parents):
     return parents
 
 def select_parent_Original(population):
+    """Select a random parent from the top half of the population."""
     return random.choice(population[:len(population)//2])
 
 # ---------- Task 10: Aging Survivor Selection ----------
 def apply_aging(population):
+    """
+    Increment the age of each individual.
+    Remove individuals that exceed GA_MAX_AGE and replace them with new random individuals.
+    """
     survivors = []
     for ind in population:
         ind.age += 1
@@ -247,6 +316,11 @@ def apply_aging(population):
 
 # ---------- Task 9: Genetic Diversity Metrics (Factor Exploration) ----------
 def compute_diversity_metrics(population):
+    """
+    Compute diversity metrics: 
+    Average pairwise Hamming distance, average distinct alleles per gene,
+    and average Shannon entropy per gene.
+    """
     if GA_MODE == "STRING":
         L = len(GA_TARGET)
         N = len(population)
@@ -289,6 +363,9 @@ def compute_diversity_metrics(population):
 
 # ---------- Task 1: Generation Stats, Task 8 & Task 9 Combined ----------
 def print_generation_stats(population, generation, tick_duration, total_elapsed):
+    """
+    Print detailed stats for the current generation, including fitness distribution and selection metrics.
+    """
     fitness_values = [ind.fitness for ind in population]
     best = population[0]
     worst = population[-1]
@@ -329,6 +406,10 @@ def print_generation_stats(population, generation, tick_duration, total_elapsed)
 
 # ---------- Task 10: Mating Function ----------
 def mate(population, buffer):
+    """
+    Create offspring using the selected crossover and mutation operators.
+    Elitism is applied to preserve the top individuals.
+    """
     esize = int(GA_POPSIZE * GA_ELITRATE)
     elitism(population, buffer, esize)
     num_offspring = GA_POPSIZE - esize
@@ -373,6 +454,12 @@ def mate(population, buffer):
         buffer.append(child)
 
 def plot_grids(input_grid, target_grid, solution_grid=None):
+    """
+    Display three side-by-side plots for ARC mode:
+    - The input grid
+    - The target grid
+    - The solution grid
+    """
     fig = plt.figure(figsize=(15, 5))
     ax1 = fig.add_subplot(131)
     ax1.matshow(input_grid, cmap='viridis')
@@ -397,6 +484,11 @@ def plot_grids(input_grid, target_grid, solution_grid=None):
     plt.show()
 
 def print_bin_details(bins, total_runtime):
+    """
+    Print the final bin packing result in the requested format.
+    Each bin is numbered sequentially starting from 1, and displays the list of item sizes 
+    and the total sum in that bin.
+    """
     deviation = len(bins) - BP_OPTIMAL
     print(f"Results for {bp_instance['name']}:")
     print(f"Bins used: {len(bins)}")
@@ -461,7 +553,7 @@ def main():
                 capacity = int(parts[0])
                 num_items = int(parts[1])
                 optimal = int(parts[2])
-                items = [int(lines[idx+i].strip()) for i in range(num_items)]
+                items = [int(lines[idx + i].strip()) for i in range(num_items)]
                 idx += num_items
                 bp_problems.append({
                     "name": problem_name,
@@ -486,12 +578,13 @@ def main():
                 BP_ITEMS = bp_instance["items"]
                 BP_CAPACITY = bp_instance["capacity"]
                 BP_OPTIMAL = bp_instance["optimal"]
+                # Initialize population for this problem
                 population = [GAIndividual() for _ in range(GA_POPSIZE)]
                 buffer = []
                 best_solution = None
                 best_fitness_list = []
                 start_time = timeit.default_timer()
-                consecutive_ones = 0  # סופר דורות רציפים עם פיטנס 1
+                consecutive_ones = 0  # Count consecutive generations with best fitness equal to 1
                 for generation in range(50):
                     tick_start = timeit.default_timer()
                     for ind in population:
@@ -504,6 +597,7 @@ def main():
                     total_elapsed = tick_end - start_time
                     print(f"Problem {bp_instance['name']} Gen {generation}: Best fitness = {best_fitness} (Tick: {tick_duration:.4f}s, Total: {total_elapsed:.4f}s)")
                     
+                    # Check if best fitness is 1 for 5 consecutive generations
                     if best_fitness == 1:
                         consecutive_ones += 1
                     else:
@@ -511,6 +605,7 @@ def main():
                     if consecutive_ones >= 5:
                         print(f"5 consecutive generations with fitness 1 reached at generation {generation}.")
                         break
+                    
                     buffer = []
                     esize = int(GA_POPSIZE * GA_ELITRATE)
                     elitism(population, buffer, esize)
@@ -524,9 +619,10 @@ def main():
                         buffer.append(child)
                     population = buffer
                     population = apply_aging(population)
-                # בסיום הריצה עבור הבעיה – חישוב חלוקת ה-BINS הסופית מהפרט הטוב ביותר
+                # End of GA run for the current problem; use the best solution from the final population
                 best_solution = population[0].repr
                 final_bins = []
+                # Compute final bin distribution using First-Fit
                 for i in best_solution:
                     size = BP_ITEMS[i]
                     placed = False
@@ -537,8 +633,7 @@ def main():
                             break
                     if not placed:
                         final_bins.append([i])
-                # מיון הבינס לא לפי BP_ITEMS[b[0]] אלא לפי המספר הסידורי (נרצה להדפיס בסדר מ-1 ועד N)
-                # לכן נדפיס את הרשימה הסופית כפי שהיא, כאשר אנו נדפיס את BIN i כ-"Bin i"
+                # Print final results in the requested format
                 total_runtime = total_elapsed
                 print(f"\nResults for {bp_instance['name']}:")
                 print(f"Bins used: {len(final_bins)}")
@@ -547,6 +642,7 @@ def main():
                 print(f"Deviation from optimal: {deviation} bins")
                 print(f"Runtime: {total_runtime:.4f}s")
                 print("Bin details:")
+                # Print bin details sequentially starting from Bin 1
                 for idx, b in enumerate(final_bins, start=1):
                     sizes = [BP_ITEMS[i] for i in b]
                     total = sum(sizes)
@@ -672,12 +768,12 @@ def main():
     if best_solution is None and GA_MODE == "ARC":
         print("\n*** Final Best Attempt ***")
         plot_grids(np.array(GA_ARC_INPUT_GRID), np.array(GA_ARC_TARGET_GRID), np.array(population[0].repr))
-        print(f"Matching Cells: {len(GA_ARC_TARGET_GRID)*len(GA_ARC_TARGET_GRID[0]) - population[0].fitness}/{len(GA_ARC_TARGET_GRID)*len(GA_ARC_TARGET_GRID[0])}")
+        print(f"Matching Cells: {len(GA_ARC_INPUT_GRID)*len(GA_ARC_INPUT_GRID[0]) - population[0].fitness}/{len(GA_ARC_INPUT_GRID)*len(GA_ARC_INPUT_GRID[0])}")
     elif GA_MODE == "ARC":
         solution_np = np.array(best_solution) if best_solution else None
         plot_grids(np.array(GA_ARC_INPUT_GRID), np.array(GA_ARC_TARGET_GRID), solution_np)
         if best_solution is None:
-            print(f"\nMatching Cells: {len(GA_ARC_TARGET_GRID)*len(GA_ARC_TARGET_GRID[0]) - population[0].fitness}/{len(GA_ARC_TARGET_GRID)*len(GA_ARC_TARGET_GRID[0])}")
+            print(f"\nMatching Cells: {len(GA_ARC_INPUT_GRID)*len(GA_ARC_INPUT_GRID[0]) - population[0].fitness}/{len(GA_ARC_INPUT_GRID)*len(GA_ARC_INPUT_GRID[0])}")
     plt.figure(figsize=(10, 6))
     generations = list(range(len(best_fitness_list)))
     plt.plot(generations, best_fitness_list, label="Best Fitness")
@@ -691,9 +787,9 @@ def main():
     plt.show()
     plt.figure(figsize=(12, 6))
     plt.boxplot(fitness_distributions, showfliers=True)
-    plt.xlabel('Generation')
-    plt.ylabel('Fitness')
-    plt.title('Box Plot of Fitness per Generation')
+    plt.xlabel("Generation")
+    plt.ylabel("Fitness")
+    plt.title("Box Plot of Fitness per Generation")
     plt.grid(True)
     plt.show()
     # ---------- Task 5: Exploration vs. Exploitation Explanation ----------
@@ -705,3 +801,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+ 
