@@ -26,7 +26,7 @@ GA_TOURNAMENT_P = 0.8       # For non-deterministic tournament: probability to s
 GA_MAX_AGE = 10             # Each individual lives for a fixed number of generations
 
 # לאחר ההגדרות הקיימות
-GA_MODE = "STRING"  # או "ARC"
+GA_MODE = "STRING"  # או "ARC" או "BINPACK"
 GA_ARC_TARGET_GRID = None
 GA_ARC_INPUT_GRID = None
 
@@ -47,6 +47,8 @@ class GAIndividual:
         self.repr = representation if representation else self.random_repr()
         self.fitness = 0
         self.age = 0
+        if GA_MODE == "BINPACK":
+            self.repr = representation if representation else self.random_binpack_solution()
 
     def random_repr(self):
         if GA_MODE == "STRING":
@@ -95,6 +97,10 @@ class GAIndividual:
             s = list(self.repr)
             s[pos] = delta
             self.repr = ''.join(s)
+
+    def random_binpack_solution(self):
+        # ייצוג אקראי לאלגוריתם גנטי (אם יוחלט להשתמש בו בעתיד)
+        pass
 
 def init_population():
     return [GAIndividual() for _ in range(GA_POPSIZE)]
@@ -382,15 +388,117 @@ def plot_grids(input_grid, target_grid, solution_grid=None):
     plt.tight_layout()
     plt.show()
 
+def load_binpack_problems(filepath):
+    problems = []
+    with open(filepath) as f:
+        lines = [line.strip() for line in f if line.strip()]
+    
+    i = 0
+    while i < len(lines):
+        if lines[i].startswith('u'):
+            name = lines[i]
+            # תיקון בפיצול הפרמטרים
+            parts = lines[i+1].split()
+            V = int(parts[0])
+            num_items = int(parts[1])
+            optimal = int(parts[2])
+            
+            # קריאת הפריטים כערכים מספריים
+            items = []
+            for j in range(i+2, i+2+num_items):
+                if j < len(lines):
+                    items.append(int(lines[j]))
+            
+            problems.append({
+                'name': name,
+                'capacity': V,
+                'items': items,
+                'optimal': optimal
+            })
+            i += 2 + num_items
+        else:
+            i += 1
+    return problems
+
+def first_fit(items, capacity):
+    # בדיקת תקינות קלט
+    if any(item > capacity for item in items):
+        raise ValueError("One or more items exceed bin capacity")
+    
+    bins = []
+    start_time = timeit.default_timer()
+    
+    # מיון פריטים בסדר יורד לשיפור הביצועים
+    sorted_items = sorted(items, reverse=True)
+    
+    for item in sorted_items:  # שינוי לסדר מיון
+        placed = False
+        for bin in bins:
+            if sum(bin) + item <= capacity:
+                bin.append(item)
+                placed = True
+                break
+        if not placed:
+            bins.append([item])
+    
+    runtime = timeit.default_timer() - start_time
+    
+    # בדיקת תקינות התוצאה
+    for bin in bins:
+        if sum(bin) > capacity:
+            raise ValueError(f"Bin overflow detected: {sum(bin)} > {capacity}")
+    
+    return len(bins), runtime, bins  # הוספת החזרת רשימת המיכלים
+
+def print_binpack_stats(items, capacity, bins_used, runtime, optimal):
+    total_items = len(items)
+    avg_load = sum(items)/ (bins_used * capacity)
+    worst_case = bins_used / optimal
+    
+    print("\n=== Bin Packing Analysis ===")
+    print(f"Total items: {total_items}")
+    print(f"Bin capacity: {capacity}")
+    print(f"Bins used: {bins_used}")
+    print(f"Theoretical minimum: {optimal}")
+    print(f"Approximation ratio: {worst_case:.2f}")
+    print(f"Average bin utilization: {avg_load:.2%}")
+    print(f"Total runtime: {runtime:.4f} seconds")
+
 def main():
     global GA_MODE, GA_ARC_TARGET_GRID, GA_ARC_INPUT_GRID
     
     print("Select mode:")
     print("1 - String evolution")
     print("2 - ARC puzzle")
-    mode_choice = input("Enter your choice (1/2): ")
+    print("3 - First-Fit Bin Packing")
+    mode_choice = input("Enter your choice (1/2/3): ")
     
-    if mode_choice == "2":
+    if mode_choice == "3":
+        GA_MODE = "BINPACK"
+        problems = load_binpack_problems("Bin_Packing/binpack1.txt")
+        
+        print("\nAvailable problems:")
+        for i, p in enumerate(problems):
+            print(f"{i+1}. {p['name']} (Items: {len(p['items'])}, Optimal: {p['optimal']})")
+        
+        choice = int(input("Select problem: ")) - 1
+        selected = problems[choice]
+        
+        bins_used, runtime, bins = first_fit(selected['items'], selected['capacity'])
+        
+        print(f"\nResults for {selected['name']}:")
+        print(f"Bins used: {bins_used}")
+        print(f"Theoretical minimum: {selected['optimal']}")
+        print(f"Deviation from optimal: {bins_used - selected['optimal']} bins")
+        print(f"Runtime: {runtime:.4f} seconds")
+        
+        # הדפסת פרטי המיכלים
+        print("\nBin details:")
+        for i, bin_items in enumerate(bins, 1):
+            bin_sum = sum(bin_items)
+            print(f"Bin {i}: {bin_items} (Total: {bin_sum}/{selected['capacity']})")
+        return
+    elif mode_choice == "2":
         GA_MODE = "ARC"
         json_path = input("Enter path to ARC JSON file: ")
         try:
@@ -425,6 +533,35 @@ def main():
                 
         except Exception as e:
             print(f"Error loading ARC puzzle: {e}")
+            exit(1)
+    elif mode_choice == "3":
+        GA_MODE = "BINPACK"
+        filepath = input("Enter path to binpack1.txt file: ")
+        try:
+            problems = load_binpack_problems(filepath)
+            print(f"\nFound {len(problems)} bin packing problems:")
+            for i, problem in enumerate(problems):
+                print(f"{i+1}. {problem['name']} - Capacity: {problem['capacity']}, Items: {problem['items']}")
+            
+            # בחירת תרגיל
+            example_choice = int(input(f"\nSelect example (1-{len(problems)}): ")) - 1
+            if example_choice < 0 or example_choice >= len(problems):
+                print("Invalid choice, using first example")
+                example_choice = 0
+                
+            selected_problem = problems[example_choice]
+            GA_ARC_INPUT_GRID = selected_problem['items']
+            GA_ARC_TARGET_GRID = selected_problem['optimal']
+            
+            # הוספת ההצגה הגרפית לפני הגרפים
+            plot_grids(GA_ARC_INPUT_GRID, GA_ARC_TARGET_GRID)
+            
+            # מחיקת הגרפים מהזיכרון
+            GA_ARC_TARGET_GRID = None
+            GA_ARC_INPUT_GRID = None
+            
+        except Exception as e:
+            print(f"Error loading bin packing problem: {e}")
             exit(1)
     else:
         # ---------- User Input for Fitness Heuristic ----------
